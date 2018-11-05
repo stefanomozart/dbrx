@@ -21,8 +21,8 @@ type TX interface {
 
 type session struct{ *dbr.Session }
 
-// NewSession wraps a *dbr.Session
-func NewSession(s *dbr.Session) DML {
+// Wrap a *dbr.Session
+func Wrap(s *dbr.Session) DML {
 	return &session{s}
 }
 
