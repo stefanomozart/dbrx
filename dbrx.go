@@ -19,15 +19,15 @@ type TX interface {
 	RollbackUnlessCommitted()
 }
 
-type session struct{ *dbr.Session }
+type wrapper struct{ *dbr.Session }
 
 // Wrap a *dbr.Session
 func Wrap(s *dbr.Session) DML {
-	return &session{s}
+	return &wrapper{s}
 }
 
-func (s *session) Begin() (TX, error) {
-	tx, err := s.Session.Begin()
+func (w *wrapper) Begin() (TX, error) {
+	tx, err := w.Session.Begin()
 	return outerTransaction{tx}, err
 }
 
