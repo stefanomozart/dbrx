@@ -43,3 +43,17 @@ func (t innerTransaction) Begin() (TX, error)     { return t, nil }
 func (innerTransaction) Commit() error            { return nil }
 func (innerTransaction) Rollback() error          { return nil }
 func (innerTransaction) RollbackUnlessCommitted() {}
+
+// RunInTransaction calls f inside a transaction and rollbacks if it returns an error
+func RunInTransaction(dml DML, f func(tx TX) error) error {
+	tx, err := dml.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.RollbackUnlessCommitted()
+	if err := f(tx); err != nil {
+		return err
+	}
+	tx.Commit()
+	return nil
+}
