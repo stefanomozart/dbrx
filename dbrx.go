@@ -1,6 +1,10 @@
 package dbrx
 
-import "github.com/gocraft/dbr"
+import (
+	"time"
+
+	"github.com/gocraft/dbr"
+)
 
 // DML is the data manipulation language interface for dbr
 type DML interface {
@@ -23,6 +27,7 @@ type wrapper struct{ *dbr.Session }
 
 // Wrap a *dbr.Session
 func Wrap(s *dbr.Session) DML {
+	s.Dialect = dialect{s.Dialect}
 	return &wrapper{s}
 }
 
@@ -56,4 +61,34 @@ func RunInTransaction(dml DML, f func(tx TX) error) error {
 	}
 	tx.Commit()
 	return nil
+}
+
+const (
+	timeFormat = "2006-01-02 15:04:05.000000"
+)
+
+type dialect struct{ dbr.Dialect }
+
+func (d dialect) QuoteIdent(s string) string {
+	return d.Dialect.QuoteIdent(s)
+}
+
+func (d dialect) EncodeString(s string) string {
+	return d.Dialect.EncodeString(s)
+}
+
+func (d dialect) EncodeBool(b bool) string {
+	return d.Dialect.EncodeBool(b)
+}
+
+func (d dialect) EncodeTime(t time.Time) string {
+	return `'` + t.Format(timeFormat) + `'`
+}
+
+func (d dialect) EncodeBytes(b []byte) string {
+	return d.Dialect.EncodeBytes(b)
+}
+
+func (d dialect) Placeholder(i int) string {
+	return d.Dialect.Placeholder(i)
 }
