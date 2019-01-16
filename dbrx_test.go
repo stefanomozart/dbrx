@@ -78,3 +78,46 @@ func TestRunInTransaction(t *testing.T) {
 		})
 	}
 }
+
+func TestReturning(t *testing.T) {
+	cases := []struct {
+		name  string
+		input func(dml DML) *InsertStmt
+		err   error
+	}{
+		{
+			"Insert com Returning",
+			func(dml DML) *InsertStmt {
+				return dml.InsertInto("t").
+					Columns("s").
+					Values("v").
+					Returning("id")
+			},
+			nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			conn, err := dbr.Open("sqlite3", ":memory:", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sess := conn.NewSession(nil)
+			dml := Wrap(sess)
+			sess.Exec("create table t(id integer primary key, s varchar);")
+			stmt := c.input(dml)
+			result, err := stmt.Exec()
+			if !reflect.DeepEqual(c.err, err) {
+				t.Errorf("expected %v, got %v", c.err, err)
+			}
+			id, err := result.LastInsertId()
+			if err != nil {
+				t.Error(err)
+			}
+			if id != 1 {
+				t.Errorf("expected 1 got %v", id)
+			}
+		})
+	}
+
+}
