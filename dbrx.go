@@ -105,7 +105,7 @@ func (b *InsertStmt) Returning(column ...string) *InsertStmt {
 
 // Exec runs the insert statement
 func (b *InsertStmt) Exec() (sql.Result, error) {
-	if isPostgres(b.Dialect) {
+	if isPostgres(b.Dialect) && len(b.InsertStmt.ReturnColumn) == 1 {
 		var id int64
 		err := b.InsertStmt.Load(&id)
 		if err != nil {
