@@ -29,7 +29,9 @@ type wrapper struct{ *dbr.Session }
 
 // Wrap a *dbr.Session
 func Wrap(s *dbr.Session) DML {
-	s.Dialect = dialect{s.Dialect}
+	if _, ok := s.Dialect.(dialect); !ok {
+		s.Dialect = dialect{s.Dialect}
+	}
 	return &wrapper{s}
 }
 
