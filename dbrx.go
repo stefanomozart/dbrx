@@ -314,6 +314,9 @@ func (e *ValuesExpr) Values(v ...interface{}) *ValuesExpr {
 func (e *ValuesExpr) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	buf.WriteString("VALUES ")
 	for i, values := range e.values {
+		if len(values) == 0 {
+			continue
+		}
 		if i > 0 {
 			buf.WriteString(",")
 		}
