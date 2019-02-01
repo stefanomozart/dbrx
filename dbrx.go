@@ -307,6 +307,9 @@ type ValuesExpr struct {
 }
 
 func (e *ValuesExpr) Values(v ...interface{}) *ValuesExpr {
+	if e == nil {
+		return Values(v...)
+	}
 	e.values = append(e.values, v)
 	return e
 }
