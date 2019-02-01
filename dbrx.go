@@ -8,13 +8,19 @@ import (
 	dbrdialect "github.com/gocraft/dbr/dialect"
 )
 
+const (
+	placeholder = "?"
+)
+
 // DML is the data manipulation language interface for dbr
 type DML interface {
 	Select(...string) *dbr.SelectStmt
 	InsertInto(string) *InsertStmt
-	Update(string) *dbr.UpdateStmt
+	Update(string) *UpdateStmt
 	DeleteFrom(string) *dbr.DeleteStmt
 	Begin() (TX, error)
+	With(name string, builder dbr.Builder) DML
+	updateBySql(sql string) *dbr.UpdateBuilder
 }
 
 // TX represents a db transaction
@@ -25,32 +31,76 @@ type TX interface {
 	RollbackUnlessCommitted()
 }
 
-type wrapper struct{ *dbr.Session }
+type wrapper struct {
+	*dbr.Session
+	withClause withClause
+}
+
+type withClause struct {
+	name    string
+	builder dbr.Builder
+}
 
 // Wrap a *dbr.Session
 func Wrap(s *dbr.Session) DML {
 	if _, ok := s.Dialect.(dialect); !ok {
 		s.Dialect = dialect{s.Dialect}
 	}
-	return &wrapper{s}
+	return &wrapper{Session: s}
 }
 
 func (w *wrapper) Begin() (TX, error) {
 	tx, err := w.Session.Begin()
-	return outerTransaction{tx}, err
+	return outerTransaction{Tx: tx}, err
 }
 
-type outerTransaction struct{ *dbr.Tx }
+func (w *wrapper) With(name string, builder dbr.Builder) DML {
+	w.withClause.name = name
+	w.withClause.builder = builder
+	return w
+}
+
+func (w *wrapper) InsertInto(table string) *InsertStmt {
+	return &InsertStmt{w.Session.InsertInto(table)}
+}
+
+func (w *wrapper) Update(table string) *UpdateStmt {
+	return &UpdateStmt{w.Session.Update(table), w.withClause, w}
+}
+
+func (w *wrapper) updateBySql(sql string) *dbr.UpdateBuilder {
+	return w.Session.UpdateBySql(sql)
+}
+
+type outerTransaction struct {
+	*dbr.Tx
+	withClause withClause
+}
 
 func (t outerTransaction) Begin() (TX, error) {
-	return innerTransaction{t.Tx}, nil
+	return innerTransaction{Tx: t.Tx}, nil
 }
 
 func (t outerTransaction) InsertInto(table string) *InsertStmt {
 	return &InsertStmt{t.Tx.InsertInto(table)}
 }
 
-type innerTransaction struct{ *dbr.Tx }
+func (t outerTransaction) Update(table string) *UpdateStmt {
+	return &UpdateStmt{t.Tx.Update(table), t.withClause, t}
+}
+
+func (t outerTransaction) With(name string, builder dbr.Builder) DML {
+	return t
+}
+
+func (t outerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
+	return t.Tx.UpdateBySql(sql)
+}
+
+type innerTransaction struct {
+	*dbr.Tx
+	withClause withClause
+}
 
 func (t innerTransaction) Begin() (TX, error)     { return t, nil }
 func (innerTransaction) Commit() error            { return nil }
@@ -59,6 +109,18 @@ func (innerTransaction) RollbackUnlessCommitted() {}
 
 func (t innerTransaction) InsertInto(table string) *InsertStmt {
 	return &InsertStmt{t.Tx.InsertInto(table)}
+}
+
+func (t innerTransaction) Update(table string) *UpdateStmt {
+	return &UpdateStmt{t.Tx.Update(table), t.withClause, t}
+}
+
+func (t innerTransaction) With(name string, builder dbr.Builder) DML {
+	return t
+}
+
+func (t innerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
+	return t.Tx.UpdateBySql(sql)
 }
 
 // RunInTransaction calls f inside a transaction and rollbacks if it returns an error
@@ -73,10 +135,6 @@ func RunInTransaction(dml DML, f func(tx TX) error) error {
 	}
 	tx.Commit()
 	return nil
-}
-
-func (w *wrapper) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{w.Session.InsertInto(table)}
 }
 
 // InsertStmt overcomes dbr.InsertStmt limitations
@@ -116,6 +174,59 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 		return sqlResult(id), nil
 	}
 	return b.InsertStmt.Exec()
+}
+
+// UpdateStmt overcomes dbr.UpdateStmt limitations
+type UpdateStmt struct {
+	*dbr.UpdateStmt
+	withClause withClause
+	dml        DML
+}
+
+// Build calls itself to build SQL.
+func (b *UpdateStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
+	if b.withClause.name != "" {
+		buf.WriteString("WITH ")
+		buf.WriteString(b.withClause.name)
+		buf.WriteString(" AS (")
+		err := b.withClause.builder.Build(d, buf)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(") ")
+	}
+	return b.UpdateStmt.Build(d, buf)
+}
+
+// Set updates column with value.
+func (b *UpdateStmt) Set(column string, value interface{}) *UpdateStmt {
+	b.UpdateStmt.Set(column, value)
+	return b
+}
+
+// Where adds a where condition.
+// query can be Builder or string. value is used only if query type is string.
+func (b *UpdateStmt) Where(query interface{}, value ...interface{}) *UpdateStmt {
+	b.UpdateStmt.Where(query, value)
+	return b
+}
+
+// Exec runs the update statement
+func (b *UpdateStmt) Exec() (sql.Result, error) {
+	buf := dbr.NewBuffer()
+	err := b.Build(b.Dialect, buf)
+	if err != nil {
+		return nil, err
+	}
+	str, err := dbr.InterpolateForDialect(
+		buf.String(),
+		buf.Value(),
+		b.Dialect,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return b.dml.updateBySql(str).Exec()
 }
 
 func isPostgres(d dbr.Dialect) bool {
@@ -163,4 +274,54 @@ func (d dialect) EncodeBytes(b []byte) string {
 
 func (d dialect) Placeholder(i int) string {
 	return d.Dialect.Placeholder(i)
+}
+
+func Parens(b dbr.Builder) dbr.Builder {
+	return parensBuilder{b}
+}
+
+type parensBuilder struct {
+	dbr.Builder
+}
+
+func (b parensBuilder) Build(d dbr.Dialect, buf dbr.Buffer) error {
+	buf.WriteString("(")
+	err := b.Builder.Build(d, buf)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(")")
+	return nil
+}
+
+func Values(v ...interface{}) *ValuesExpr {
+	return &ValuesExpr{[][]interface{}{v}}
+}
+
+type ValuesExpr struct {
+	values [][]interface{}
+}
+
+func (e *ValuesExpr) Values(v ...interface{}) *ValuesExpr {
+	e.values = append(e.values, v)
+	return e
+}
+
+func (e *ValuesExpr) Build(d dbr.Dialect, buf dbr.Buffer) error {
+	buf.WriteString("VALUES ")
+	for i, values := range e.values {
+		if i > 0 {
+			buf.WriteString(",")
+		}
+		buf.WriteString("(")
+		for j, value := range values {
+			if j > 0 {
+				buf.WriteString(",")
+			}
+			buf.WriteString(placeholder)
+			buf.WriteValue(value)
+		}
+		buf.WriteString(")")
+	}
+	return nil
 }
