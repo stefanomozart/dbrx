@@ -90,6 +90,8 @@ func (t outerTransaction) Update(table string) *UpdateStmt {
 }
 
 func (t outerTransaction) With(name string, builder dbr.Builder) DML {
+	t.withClause.name = name
+	t.withClause.builder = builder
 	return t
 }
 
@@ -116,6 +118,8 @@ func (t innerTransaction) Update(table string) *UpdateStmt {
 }
 
 func (t innerTransaction) With(name string, builder dbr.Builder) DML {
+	t.withClause.name = name
+	t.withClause.builder = builder
 	return t
 }
 
