@@ -217,6 +217,9 @@ func (b *UpdateStmt) Where(query interface{}, value ...interface{}) *UpdateStmt 
 
 // Exec runs the update statement
 func (b *UpdateStmt) Exec() (sql.Result, error) {
+	if b.withClause.name == "" {
+		return b.UpdateStmt.Exec()
+	}
 	buf := dbr.NewBuffer()
 	err := b.Build(b.Dialect, buf)
 	if err != nil {
