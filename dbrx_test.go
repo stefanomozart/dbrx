@@ -162,6 +162,28 @@ func TestWith(t *testing.T) {
 			},
 			map[int]string{1: "v_1", 2: "v_2"},
 		},
+		{
+			"With before Select",
+			`create table t (id integer primary key, value varchar);
+			 insert into t(value) values ('v1'),('v2');`,
+			func(dml DML) builder {
+				return dml.
+					With("v(id,value)", Values(1, "v_1").Values(2, "v_2")).
+					Select("v.value a", "t.value b").
+					From("v").
+					Join("t", "v.id = t.id")
+			},
+			`WITH v(id,value) AS (VALUES (1,'v_1'),(2,'v_2'))
+			 SELECT v.value a, t.value b
+			 FROM v JOIN "t" ON v.id = t.id`,
+			func(dml DML) (interface{}, error) {
+				return nil, nil
+			},
+			map[interface{}][]interface{}{
+				"v_1": {"v1"},
+				"v_2": {"v2"},
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -195,16 +217,28 @@ func TestWith(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			}
-			_, err = builder.(*UpdateStmt).Exec()
-			if err != nil {
-				t.Error(err)
-			}
-			data, err := c.assert(dml)
-			if err != nil {
-				t.Error(err)
-			}
-			if !reflect.DeepEqual(c.data, data) {
-				t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+			switch stmt := builder.(type) {
+			case *UpdateStmt:
+				_, err = stmt.Exec()
+				if err != nil {
+					t.Error(err)
+				}
+				data, err := c.assert(dml)
+				if err != nil {
+					t.Error(err)
+				}
+				if !reflect.DeepEqual(c.data, data) {
+					t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+				}
+			case *SelectStmt:
+				data := make(map[interface{}][]interface{})
+				_, err := stmt.Load(&data)
+				if err != nil {
+					t.Error(err)
+				}
+				if !reflect.DeepEqual(c.data, data) {
+					t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+				}
 			}
 		})
 	}
