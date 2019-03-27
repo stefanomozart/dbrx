@@ -184,6 +184,29 @@ func TestWith(t *testing.T) {
 				"v_2": {"v2"},
 			},
 		},
+		{
+			"Two withs",
+			"",
+			func(dml DML) builder {
+				return dml.
+					With("v1(id,value)", Values(1, "v1").Values(2, "v2")).
+					With("v2(id,value)", Values(1, "v3").Values(2, "v4")).
+					Select("v1.value", "v2.value").
+					From("v1").
+					Join("v2", "v1.id = v2.id")
+			},
+			`WITH v1(id,value) AS (VALUES (1,'v1'),(2,'v2')) ,
+			 	v2(id,value) AS (VALUES (1,'v3'),(2,'v4'))
+			 SELECT v1.value, v2.value
+			 FROM v1 JOIN "v2" ON v1.id = v2.id`,
+			func(dml DML) (interface{}, error) {
+				return nil, nil
+			},
+			map[interface{}][]interface{}{
+				"v1": {"v3"},
+				"v2": {"v4"},
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

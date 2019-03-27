@@ -32,9 +32,11 @@ type TX interface {
 	RollbackUnlessCommitted()
 }
 
+type withClauses []withClause
+
 type wrapper struct {
 	*dbr.Session
-	withClause withClause
+	withClauses withClauses
 }
 
 type withClause struct {
@@ -42,18 +44,23 @@ type withClause struct {
 	builder dbr.Builder
 }
 
-func (w withClause) write(d dbr.Dialect, buf dbr.Buffer) error {
-	if w.name == "" {
+func (ws withClauses) write(d dbr.Dialect, buf dbr.Buffer) error {
+	if len(ws) == 0 {
 		return nil
 	}
 	buf.WriteString("WITH ")
-	buf.WriteString(w.name)
-	buf.WriteString(" AS (")
-	err := w.builder.Build(d, buf)
-	if err != nil {
-		return err
+	for i, w := range ws {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(w.name)
+		buf.WriteString(" AS (")
+		err := w.builder.Build(d, buf)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(") ")
 	}
-	buf.WriteString(") ")
 	return nil
 }
 
@@ -71,14 +78,13 @@ func (w *wrapper) Begin() (TX, error) {
 }
 
 func (w *wrapper) With(name string, builder dbr.Builder) DML {
-	w.withClause.name = name
-	w.withClause.builder = builder
+	w.withClauses = append(w.withClauses, withClause{name, builder})
 	return w
 }
 
 func (w *wrapper) Select(column ...string) *SelectStmt {
-	stmt := &SelectStmt{w.Session.Select(column...), w.withClause, w}
-	w.withClause = withClause{}
+	stmt := &SelectStmt{w.Session.Select(column...), w.withClauses, w}
+	w.withClauses = nil
 	return stmt
 }
 
@@ -87,8 +93,8 @@ func (w *wrapper) InsertInto(table string) *InsertStmt {
 }
 
 func (w *wrapper) Update(table string) *UpdateStmt {
-	stmt := &UpdateStmt{w.Session.Update(table), w.withClause, w}
-	w.withClause = withClause{}
+	stmt := &UpdateStmt{w.Session.Update(table), w.withClauses, w}
+	w.withClauses = nil
 	return stmt
 }
 
@@ -102,7 +108,7 @@ func (w *wrapper) selectBySql(sql string, value ...interface{}) *dbr.SelectBuild
 
 type outerTransaction struct {
 	*dbr.Tx
-	withClause withClause
+	withClauses withClauses
 }
 
 func (t outerTransaction) Begin() (TX, error) {
@@ -110,7 +116,7 @@ func (t outerTransaction) Begin() (TX, error) {
 }
 
 func (t outerTransaction) Select(columns ...string) *SelectStmt {
-	return &SelectStmt{t.Tx.Select(columns...), t.withClause, t}
+	return &SelectStmt{t.Tx.Select(columns...), t.withClauses, t}
 }
 
 func (t outerTransaction) InsertInto(table string) *InsertStmt {
@@ -118,12 +124,11 @@ func (t outerTransaction) InsertInto(table string) *InsertStmt {
 }
 
 func (t outerTransaction) Update(table string) *UpdateStmt {
-	return &UpdateStmt{t.Tx.Update(table), t.withClause, t}
+	return &UpdateStmt{t.Tx.Update(table), t.withClauses, t}
 }
 
 func (t outerTransaction) With(name string, builder dbr.Builder) DML {
-	t.withClause.name = name
-	t.withClause.builder = builder
+	t.withClauses = append(t.withClauses, withClause{name, builder})
 	return t
 }
 
@@ -137,7 +142,7 @@ func (t outerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
 
 type innerTransaction struct {
 	*dbr.Tx
-	withClause withClause
+	withClauses withClauses
 }
 
 func (t innerTransaction) Begin() (TX, error)     { return t, nil }
@@ -146,7 +151,7 @@ func (innerTransaction) Rollback() error          { return nil }
 func (innerTransaction) RollbackUnlessCommitted() {}
 
 func (t innerTransaction) Select(columns ...string) *SelectStmt {
-	return &SelectStmt{t.Tx.Select(columns...), t.withClause, t}
+	return &SelectStmt{t.Tx.Select(columns...), t.withClauses, t}
 }
 
 func (t innerTransaction) InsertInto(table string) *InsertStmt {
@@ -154,12 +159,11 @@ func (t innerTransaction) InsertInto(table string) *InsertStmt {
 }
 
 func (t innerTransaction) Update(table string) *UpdateStmt {
-	return &UpdateStmt{t.Tx.Update(table), t.withClause, t}
+	return &UpdateStmt{t.Tx.Update(table), t.withClauses, t}
 }
 
 func (t innerTransaction) With(name string, builder dbr.Builder) DML {
-	t.withClause.name = name
-	t.withClause.builder = builder
+	t.withClauses = append(t.withClauses, withClause{name, builder})
 	return t
 }
 
@@ -188,13 +192,13 @@ func RunInTransaction(dml DML, f func(tx TX) error) error {
 // SelectStmt overcomes dbr.SelectStmt limitations
 type SelectStmt struct {
 	*dbr.SelectStmt
-	withClause withClause
-	dml        DML
+	withClauses withClauses
+	dml         DML
 }
 
 // Build calls itself to build SQL.
 func (b *SelectStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
-	err := b.withClause.write(d, buf)
+	err := b.withClauses.write(d, buf)
 	if err != nil {
 		return err
 	}
@@ -222,7 +226,7 @@ func (b *SelectStmt) Where(query interface{}, value ...interface{}) *SelectStmt 
 }
 
 func (b *SelectStmt) Load(value interface{}) (int, error) {
-	if b.withClause.name == "" {
+	if len(b.withClauses) == 0 {
 		return b.SelectStmt.Load(value)
 	}
 	buf := dbr.NewBuffer()
@@ -283,13 +287,13 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 // UpdateStmt overcomes dbr.UpdateStmt limitations
 type UpdateStmt struct {
 	*dbr.UpdateStmt
-	withClause withClause
-	dml        DML
+	withClauses withClauses
+	dml         DML
 }
 
 // Build calls itself to build SQL.
 func (b *UpdateStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
-	err := b.withClause.write(d, buf)
+	err := b.withClauses.write(d, buf)
 	if err != nil {
 		return err
 	}
@@ -311,7 +315,7 @@ func (b *UpdateStmt) Where(query interface{}, value ...interface{}) *UpdateStmt 
 
 // Exec runs the update statement
 func (b *UpdateStmt) Exec() (sql.Result, error) {
-	if b.withClause.name == "" {
+	if len(b.withClauses) == 0 {
 		return b.UpdateStmt.Exec()
 	}
 	buf := dbr.NewBuffer()
