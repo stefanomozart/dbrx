@@ -225,6 +225,21 @@ func (b *SelectStmt) Where(query interface{}, value ...interface{}) *SelectStmt 
 	return b
 }
 
+func (b *SelectStmt) OrderBy(col string) *SelectStmt {
+	b.SelectStmt.OrderBy(col)
+	return b
+}
+
+func (b *SelectStmt) OrderAsc(col string) *SelectStmt {
+	b.SelectStmt.OrderAsc(col)
+	return b
+}
+
+func (b *SelectStmt) OrderDesc(col string) *SelectStmt {
+	b.SelectStmt.OrderDesc(col)
+	return b
+}
+
 func (b *SelectStmt) Load(value interface{}) (int, error) {
 	if len(b.withClauses) == 0 {
 		return b.SelectStmt.Load(value)
