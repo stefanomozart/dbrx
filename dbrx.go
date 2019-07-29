@@ -349,6 +349,14 @@ func (b *UpdateStmt) Exec() (sql.Result, error) {
 	return b.dml.updateBySql(str).Exec()
 }
 
+// Returning specifies the returning columns for postgres.
+func (b *UpdateStmt) Returning(column ...string) *UpdateStmt {
+	if isPostgres(b.Dialect) {
+		b.UpdateStmt.Returning(column...)
+	}
+	return b
+}
+
 func isPostgres(d dbr.Dialect) bool {
 	if dbrxDialect, ok := d.(dialect); ok {
 		return dbrxDialect.Dialect == dbrdialect.PostgreSQL
