@@ -1,6 +1,7 @@
 package dbrx
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
@@ -299,6 +300,19 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 	return b.InsertStmt.Exec()
 }
 
+// ExecContext runs the insert statement
+func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
+	if isPostgres(b.Dialect) && len(b.InsertStmt.ReturnColumn) == 1 {
+		var id int64
+		err := b.InsertStmt.LoadContext(ctx, &id)
+		if err != nil {
+			return nil, err
+		}
+		return sqlResult(id), nil
+	}
+	return b.InsertStmt.ExecContext(ctx)
+}
+
 // UpdateStmt overcomes dbr.UpdateStmt limitations
 type UpdateStmt struct {
 	*dbr.UpdateStmt
@@ -333,20 +347,36 @@ func (b *UpdateStmt) Exec() (sql.Result, error) {
 	if len(b.withClauses) == 0 {
 		return b.UpdateStmt.Exec()
 	}
-	buf := dbr.NewBuffer()
-	err := b.Build(b.Dialect, buf)
-	if err != nil {
-		return nil, err
-	}
-	str, err := dbr.InterpolateForDialect(
-		buf.String(),
-		buf.Value(),
-		b.Dialect,
-	)
+	str, err := b.interpolateWithClause()
 	if err != nil {
 		return nil, err
 	}
 	return b.dml.updateBySql(str).Exec()
+}
+
+// ExecContext runs the update statement
+func (b *UpdateStmt) ExecContext(ctx context.Context) (sql.Result, error) {
+	if len(b.withClauses) == 0 {
+		return b.UpdateStmt.ExecContext(ctx)
+	}
+	str, err := b.interpolateWithClause()
+	if err != nil {
+		return nil, err
+	}
+	return b.dml.updateBySql(str).ExecContext(ctx)
+}
+
+func (b *UpdateStmt) interpolateWithClause() (str string, err error) {
+	buf := dbr.NewBuffer()
+	err = b.Build(b.Dialect, buf)
+	if err != nil {
+		return "", err
+	}
+	return dbr.InterpolateForDialect(
+		buf.String(),
+		buf.Value(),
+		b.Dialect,
+	)
 }
 
 // Returning specifies the returning columns for postgres.
