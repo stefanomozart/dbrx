@@ -90,7 +90,7 @@ func (w *wrapper) Select(column ...string) *SelectStmt {
 }
 
 func (w *wrapper) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{w.Session.InsertInto(table)}
+	return &InsertStmt{InsertStmt: w.Session.InsertInto(table)}
 }
 
 func (w *wrapper) Update(table string) *UpdateStmt {
@@ -121,7 +121,7 @@ func (t outerTransaction) Select(columns ...string) *SelectStmt {
 }
 
 func (t outerTransaction) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{t.Tx.InsertInto(table)}
+	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table)}
 }
 
 func (t outerTransaction) Update(table string) *UpdateStmt {
@@ -156,7 +156,7 @@ func (t innerTransaction) Select(columns ...string) *SelectStmt {
 }
 
 func (t innerTransaction) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{t.Tx.InsertInto(table)}
+	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table)}
 }
 
 func (t innerTransaction) Update(table string) *UpdateStmt {
@@ -264,6 +264,8 @@ func (b *SelectStmt) Load(value interface{}) (int, error) {
 // InsertStmt overcomes dbr.InsertStmt limitations
 type InsertStmt struct {
 	*dbr.InsertStmt
+	name string
+	do   dbr.Builder
 }
 
 // Columns specifies the columns names
@@ -311,6 +313,29 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 		return sqlResult(id), nil
 	}
 	return b.InsertStmt.ExecContext(ctx)
+}
+
+// OnConflict implements the ON CONFLICT clause
+func (b *InsertStmt) OnConflict(name string, do dbr.Builder) *InsertStmt {
+	b.name = name
+	b.do = do
+	return b
+}
+
+// Build calls itself to build SQL.
+func (b *InsertStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
+	err := b.InsertStmt.Build(d, buf)
+	if err != nil {
+		return err
+	}
+	if b.name != "" {
+		buf.WriteString(" ON CONFLICT (")
+		buf.WriteString(d.QuoteIdent(b.name))
+		buf.WriteString(")")
+		buf.WriteString(" DO ")
+		b.do.Build(d, buf)
+	}
+	return nil
 }
 
 // UpdateStmt overcomes dbr.UpdateStmt limitations
