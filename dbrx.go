@@ -23,6 +23,7 @@ type DML interface {
 	With(name string, builder dbr.Builder) DML
 	updateBySql(sql string) *dbr.UpdateBuilder
 	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
+	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
 }
 
 // TX represents a db transaction
@@ -90,7 +91,7 @@ func (w *wrapper) Select(column ...string) *SelectStmt {
 }
 
 func (w *wrapper) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{InsertStmt: w.Session.InsertInto(table)}
+	return &InsertStmt{InsertStmt: w.Session.InsertInto(table), dml: w}
 }
 
 func (w *wrapper) Update(table string) *UpdateStmt {
@@ -107,6 +108,10 @@ func (w *wrapper) selectBySql(sql string, value ...interface{}) *dbr.SelectBuild
 	return w.Session.SelectBySql(sql, value...)
 }
 
+func (w *wrapper) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+	return w.Session.InsertBySql(sql, value...)
+}
+
 type outerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
@@ -121,7 +126,7 @@ func (t outerTransaction) Select(columns ...string) *SelectStmt {
 }
 
 func (t outerTransaction) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table)}
+	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table), dml: t}
 }
 
 func (t outerTransaction) Update(table string) *UpdateStmt {
@@ -141,6 +146,10 @@ func (t outerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
 	return t.Tx.UpdateBySql(sql)
 }
 
+func (t outerTransaction) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+	return t.Tx.InsertBySql(sql, value...)
+}
+
 type innerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
@@ -156,7 +165,7 @@ func (t innerTransaction) Select(columns ...string) *SelectStmt {
 }
 
 func (t innerTransaction) InsertInto(table string) *InsertStmt {
-	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table)}
+	return &InsertStmt{InsertStmt: t.Tx.InsertInto(table), dml: t}
 }
 
 func (t innerTransaction) Update(table string) *UpdateStmt {
@@ -174,6 +183,10 @@ func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.Sel
 
 func (t innerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
 	return t.Tx.UpdateBySql(sql)
+}
+
+func (t innerTransaction) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+	return t.Tx.InsertBySql(sql, value...)
 }
 
 // RunInTransaction calls f inside a transaction and rollbacks if it returns an error
@@ -266,6 +279,7 @@ type InsertStmt struct {
 	*dbr.InsertStmt
 	name string
 	do   dbr.Builder
+	dml  DML
 }
 
 // Columns specifies the columns names
@@ -299,7 +313,14 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 		}
 		return sqlResult(id), nil
 	}
-	return b.InsertStmt.Exec()
+	if b.name == "" {
+		return b.InsertStmt.Exec()
+	}
+	sql, err := b.interpolate()
+	if err != nil {
+		return nil, err
+	}
+	return b.dml.insertBySql(sql).Exec()
 }
 
 // ExecContext runs the insert statement
@@ -312,7 +333,14 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 		}
 		return sqlResult(id), nil
 	}
-	return b.InsertStmt.ExecContext(ctx)
+	if b.name == "" {
+		return b.InsertStmt.ExecContext(ctx)
+	}
+	sql, err := b.interpolate()
+	if err != nil {
+		return nil, err
+	}
+	return b.dml.insertBySql(sql).ExecContext(ctx)
 }
 
 // OnConflict implements the ON CONFLICT clause
@@ -336,6 +364,19 @@ func (b *InsertStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
 		b.do.Build(d, buf)
 	}
 	return nil
+}
+
+func (b *InsertStmt) interpolate() (str string, err error) {
+	buf := dbr.NewBuffer()
+	err = b.Build(b.Dialect, buf)
+	if err != nil {
+		return "", err
+	}
+	return dbr.InterpolateForDialect(
+		buf.String(),
+		buf.Value(),
+		b.Dialect,
+	)
 }
 
 // UpdateStmt overcomes dbr.UpdateStmt limitations
