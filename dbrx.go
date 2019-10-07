@@ -555,3 +555,51 @@ func (e *ValuesExpr) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	}
 	return nil
 }
+
+type DoUpdate struct {
+	Value     map[string]interface{}
+	WhereCond []dbr.Builder
+}
+
+func (b *DoUpdate) Build(d dbr.Dialect, buf dbr.Buffer) error {
+	buf.WriteString("UPDATE ")
+	buf.WriteString(" SET ")
+
+	i := 0
+	for col, v := range b.Value {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(d.QuoteIdent(col))
+		buf.WriteString(" = ")
+		buf.WriteString(placeholder)
+
+		buf.WriteValue(v)
+		i++
+	}
+
+	if len(b.WhereCond) > 0 {
+		buf.WriteString(" WHERE ")
+		err := dbr.And(b.WhereCond...).Build(d, buf)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *DoUpdate) Set(column string, expr interface{}) *DoUpdate {
+	b.Value[column] = expr
+	return b
+}
+
+func (b *DoUpdate) Where(query interface{}, value ...interface{}) *DoUpdate {
+	switch query := query.(type) {
+	case string:
+		b.WhereCond = append(b.WhereCond, dbr.Expr(query, value...))
+	case dbr.Builder:
+		b.WhereCond = append(b.WhereCond, query)
+	}
+	return b
+}
