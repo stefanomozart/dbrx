@@ -556,12 +556,18 @@ func (e *ValuesExpr) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	return nil
 }
 
-type DoUpdate struct {
+func DoUpdate() *DoUpdateBuilder {
+	return &DoUpdateBuilder{
+		Value: make(map[string]interface{}),
+	}
+}
+
+type DoUpdateBuilder struct {
 	Value     map[string]interface{}
 	WhereCond []dbr.Builder
 }
 
-func (b *DoUpdate) Build(d dbr.Dialect, buf dbr.Buffer) error {
+func (b *DoUpdateBuilder) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	buf.WriteString("UPDATE ")
 	buf.WriteString(" SET ")
 
@@ -589,12 +595,12 @@ func (b *DoUpdate) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	return nil
 }
 
-func (b *DoUpdate) Set(column string, expr interface{}) *DoUpdate {
+func (b *DoUpdateBuilder) Set(column string, expr interface{}) *DoUpdateBuilder {
 	b.Value[column] = expr
 	return b
 }
 
-func (b *DoUpdate) Where(query interface{}, value ...interface{}) *DoUpdate {
+func (b *DoUpdateBuilder) Where(query interface{}, value ...interface{}) *DoUpdateBuilder {
 	switch query := query.(type) {
 	case string:
 		b.WhereCond = append(b.WhereCond, dbr.Expr(query, value...))
