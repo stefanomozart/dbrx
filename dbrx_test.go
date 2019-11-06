@@ -207,6 +207,21 @@ func TestWith(t *testing.T) {
 				"v2": {"v4"},
 			},
 		},
+		{
+			"Subselect",
+			"",
+			func(dml DML) builder {
+				return dml.
+					With("v(id,value)", dbr.Select("id", "value").From("t")).
+					Select("v.value").
+					From("v")
+			},
+			`WITH v(id,value) AS (SELECT id, value FROM t)
+			 SELECT v.value
+			 FROM v`,
+			nil,
+			nil,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -242,25 +257,29 @@ func TestWith(t *testing.T) {
 			}
 			switch stmt := builder.(type) {
 			case *UpdateStmt:
-				_, err = stmt.Exec()
-				if err != nil {
-					t.Error(err)
-				}
-				data, err := c.assert(dml)
-				if err != nil {
-					t.Error(err)
-				}
-				if !reflect.DeepEqual(c.data, data) {
-					t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+				if c.data != nil && c.assert != nil {
+					_, err = stmt.Exec()
+					if err != nil {
+						t.Error(err)
+					}
+					data, err := c.assert(dml)
+					if err != nil {
+						t.Error(err)
+					}
+					if !reflect.DeepEqual(c.data, data) {
+						t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+					}
 				}
 			case *SelectStmt:
-				data := make(map[interface{}][]interface{})
-				_, err := stmt.Load(&data)
-				if err != nil {
-					t.Error(err)
-				}
-				if !reflect.DeepEqual(c.data, data) {
-					t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+				if c.data != nil {
+					data := make(map[interface{}][]interface{})
+					_, err := stmt.Load(&data)
+					if err != nil {
+						t.Error(err)
+					}
+					if !reflect.DeepEqual(c.data, data) {
+						t.Errorf("expected\n%v,\ngot\n%v.", c.data, data)
+					}
 				}
 			}
 		})
