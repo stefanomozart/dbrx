@@ -318,3 +318,32 @@ func TestBuild(t *testing.T) {
 		}
 	}
 }
+
+func TestGreatest(t *testing.T) {
+	conn, err := dbr.Open("sqlite3", ":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dml := Wrap(conn.NewSession(nil))
+	cases := []struct {
+		name   string
+		input  dbr.Builder
+		output string
+	}{
+		{
+			"two values",
+			dml.Greatest(1, 2),
+			`max(?,?)`,
+		},
+	}
+	for _, c := range cases {
+		buf := dbr.NewBuffer()
+		err := c.input.Build(dbrdialect.SQLite3, buf)
+		if err != nil {
+			t.Error(err)
+		}
+		if c.output != buf.String() {
+			t.Errorf("expected\n%v,\ngot\n%v.", c.output, buf.String())
+		}
+	}
+}

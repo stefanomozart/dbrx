@@ -3,6 +3,8 @@ package dbrx
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gocraft/dbr"
@@ -21,6 +23,7 @@ type DML interface {
 	DeleteFrom(string) *dbr.DeleteStmt
 	Begin() (TX, error)
 	With(name string, builder dbr.Builder) DML
+	Greatest(value ...interface{}) dbr.Builder
 	updateBySql(sql string) *dbr.UpdateBuilder
 	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
 	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
@@ -138,6 +141,10 @@ func (t outerTransaction) With(name string, builder dbr.Builder) DML {
 	return t
 }
 
+func (t outerTransaction) Greatest(value ...interface{}) dbr.Builder {
+	return Greatest(t.Tx.Dialect, value...)
+}
+
 func (t outerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
 	return t.Tx.SelectBySql(sql, value...)
 }
@@ -175,6 +182,10 @@ func (t innerTransaction) Update(table string) *UpdateStmt {
 func (t innerTransaction) With(name string, builder dbr.Builder) DML {
 	t.withClauses = append(t.withClauses, withClause{name, builder})
 	return t
+}
+
+func (t innerTransaction) Greatest(value ...interface{}) dbr.Builder {
+	return Greatest(t.Tx.Dialect, value...)
 }
 
 func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
@@ -608,4 +619,17 @@ func (b *DoUpdateBuilder) Where(query interface{}, value ...interface{}) *DoUpda
 		b.WhereCond = append(b.WhereCond, query)
 	}
 	return b
+}
+
+func (w *wrapper) Greatest(value ...interface{}) dbr.Builder {
+	return Greatest(w.Session.Dialect, value...)
+}
+
+func Greatest(d dbr.Dialect, value ...interface{}) dbr.Builder {
+	placeholders := strings.Repeat("?,", len(value))
+	placeholders = placeholders[0 : len(placeholders)-1]
+	if isPostgres(d) {
+		return dbr.Expr(fmt.Sprintf("greatest(%v)", placeholders), value...)
+	}
+	return dbr.Expr(fmt.Sprintf("max(%v)", placeholders), value...)
 }
