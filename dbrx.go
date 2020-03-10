@@ -672,5 +672,5 @@ func (us *UnionStmt) LoadContext(ctx context.Context, value interface{}) (int, e
 			return 0, err
 		}
 	}
-	return us.dml.selectBySql(buf.String()).LoadContext(ctx, value)
+	return us.dml.selectBySql(buf.String(), buf.Value()...).LoadContext(ctx, value)
 }

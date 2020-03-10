@@ -370,7 +370,9 @@ func TestUnion(t *testing.T) {
 	}{
 		{
 			"two selects",
-			dml.Union(dml.Select("*").From("t1"), dml.Select("*").From("t2")),
+			dml.Union(
+				dml.Select("*").From("t1").Where("id = ?", 1),
+				dml.Select("*").From("t2").Where("id = ?", 2)),
 		},
 	}
 	for _, c := range cases {
