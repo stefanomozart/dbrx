@@ -74,7 +74,7 @@ func TestRunInTransaction(t *testing.T) {
 			if !c.assert(dml) {
 				t.Error("not pass")
 			}
-			if !reflect.DeepEqual(c.err, err) {
+			if (c.err == nil) != (err == nil) {
 				t.Errorf("expected %v, got %v", c.err, err)
 			}
 		})
@@ -109,7 +109,7 @@ func TestReturning(t *testing.T) {
 			sess.Exec("create table t(id integer primary key, s varchar);")
 			stmt := c.input(dml)
 			result, err := stmt.Exec()
-			if !reflect.DeepEqual(c.err, err) {
+			if (c.err == nil) != (err == nil) {
 				t.Errorf("expected %v, got %v", c.err, err)
 			}
 			id, err := result.LastInsertId()
@@ -344,6 +344,43 @@ func TestGreatest(t *testing.T) {
 		}
 		if c.output != buf.String() {
 			t.Errorf("expected\n%v,\ngot\n%v.", c.output, buf.String())
+		}
+	}
+}
+
+func TestUnion(t *testing.T) {
+	conn, err := dbr.Open("sqlite3", ":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := conn.NewSession(nil)
+	_, err = sess.Exec(`
+        create table t1 (id int);
+        create table t2 (id int);
+        insert into t1 values(1);
+        insert into t2 values(2);
+    `)
+	if err != nil {
+		panic(err)
+	}
+	dml := Wrap(sess)
+	cases := []struct {
+		name  string
+		input *UnionStmt
+	}{
+		{
+			"two selects",
+			dml.Union(dml.Select("*").From("t1"), dml.Select("*").From("t2")),
+		},
+	}
+	for _, c := range cases {
+		var r []struct{ ID int }
+		_, err := c.input.Load(&r)
+		if err != nil {
+			t.Error(err)
+		}
+		if len(r) != 2 {
+			t.Errorf("expected\ntwo rows,\ngot\n%v.", r)
 		}
 	}
 }

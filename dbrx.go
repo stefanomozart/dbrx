@@ -24,6 +24,7 @@ type DML interface {
 	Begin() (TX, error)
 	With(name string, builder dbr.Builder) DML
 	Greatest(value ...interface{}) dbr.Builder
+	Union(builders ...dbr.Builder) *UnionStmt
 	updateBySql(sql string) *dbr.UpdateBuilder
 	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
 	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
@@ -115,6 +116,10 @@ func (w *wrapper) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt 
 	return w.Session.InsertBySql(sql, value...)
 }
 
+func (w *wrapper) Union(builders ...dbr.Builder) *UnionStmt {
+	return &UnionStmt{builders, w, false, w.Session.Dialect}
+}
+
 type outerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
@@ -143,6 +148,10 @@ func (t outerTransaction) With(name string, builder dbr.Builder) DML {
 
 func (t outerTransaction) Greatest(value ...interface{}) dbr.Builder {
 	return Greatest(t.Tx.Dialect, value...)
+}
+
+func (t outerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
+	return &UnionStmt{builders, t, false, t.Tx.Dialect}
 }
 
 func (t outerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
@@ -186,6 +195,10 @@ func (t innerTransaction) With(name string, builder dbr.Builder) DML {
 
 func (t innerTransaction) Greatest(value ...interface{}) dbr.Builder {
 	return Greatest(t.Tx.Dialect, value...)
+}
+
+func (t innerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
+	return &UnionStmt{builders, t, false, t.Tx.Dialect}
 }
 
 func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
@@ -632,4 +645,32 @@ func Greatest(d dbr.Dialect, value ...interface{}) dbr.Builder {
 		return dbr.Expr(fmt.Sprintf("greatest(%v)", placeholders), value...)
 	}
 	return dbr.Expr(fmt.Sprintf("max(%v)", placeholders), value...)
+}
+
+type UnionStmt struct {
+	builders []dbr.Builder
+	dml      DML
+	all      bool
+	dialect  dbr.Dialect
+}
+
+func (us *UnionStmt) Load(value interface{}) (int, error) {
+	return us.LoadContext(context.Background(), value)
+}
+
+func (us *UnionStmt) LoadContext(ctx context.Context, value interface{}) (int, error) {
+	var buf = dbr.NewBuffer()
+	for i, b := range us.builders {
+		if i > 0 {
+			buf.WriteString(" UNION ")
+			if us.all {
+				buf.WriteString("ALL ")
+			}
+		}
+		err := b.Build(us.dialect, buf)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return us.dml.selectBySql(buf.String()).LoadContext(ctx, value)
 }
