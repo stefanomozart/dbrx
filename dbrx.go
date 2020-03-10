@@ -672,5 +672,13 @@ func (us *UnionStmt) LoadContext(ctx context.Context, value interface{}) (int, e
 			return 0, err
 		}
 	}
-	return us.dml.selectBySql(buf.String(), buf.Value()...).LoadContext(ctx, value)
+	str, err := dbr.InterpolateForDialect(
+		buf.String(),
+		buf.Value(),
+		us.dialect,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return us.dml.selectBySql(str).LoadContext(ctx, value)
 }
