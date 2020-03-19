@@ -394,13 +394,16 @@ func TestRunAfterCommit(t *testing.T) {
 	}
 	sess := conn.NewSession(&AfterCommitEventReceiver{})
 	dml := Wrap(sess)
-	var ok bool
+	var ok, ok2 bool
 	dml.RunAfterCommit(func() { ok = true })
-	err = RunInTransaction(dml, func(tx TX) error { return nil })
+	err = RunInTransaction(dml, func(tx TX) error {
+		tx.RunAfterCommit(func() { ok2 = true })
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
+	if !ok || !ok2 {
 		t.Errorf("not ok")
 	}
 }

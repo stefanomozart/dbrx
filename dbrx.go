@@ -185,7 +185,7 @@ func (t outerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
 }
 
 func (t outerTransaction) RunAfterCommit(f func()) error {
-	return t.RunAfterCommit(f)
+	return t.w.RunAfterCommit(f)
 }
 
 func (t outerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
@@ -237,7 +237,7 @@ func (t innerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
 }
 
 func (t innerTransaction) RunAfterCommit(f func()) error {
-	return t.RunAfterCommit(f)
+	return t.w.RunAfterCommit(f)
 }
 
 func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
