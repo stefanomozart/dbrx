@@ -45,6 +45,10 @@ type AfterCommitEventReceiver struct {
 	funcs []func()
 }
 
+func (er *AfterCommitEventReceiver) Add(f func()) {
+	er.funcs = append(er.funcs, f)
+}
+
 func (er *AfterCommitEventReceiver) Event(eventName string) {
 	if eventName != "dbr.commit" {
 		return
@@ -58,8 +62,7 @@ type withClauses []withClause
 
 type wrapper struct {
 	*dbr.Session
-	withClauses              withClauses
-	afterCommitEventReceiver *AfterCommitEventReceiver
+	withClauses withClauses
 }
 
 type withClause struct {
@@ -93,9 +96,6 @@ func Wrap(s *dbr.Session) DML {
 		s.Dialect = dialect{s.Dialect}
 	}
 	w := &wrapper{Session: s}
-	if er, ok := s.EventReceiver.(*AfterCommitEventReceiver); ok {
-		w.afterCommitEventReceiver = er
-	}
 	return w
 }
 
@@ -142,10 +142,12 @@ func (w *wrapper) Union(builders ...dbr.Builder) *UnionStmt {
 }
 
 func (w *wrapper) RunAfterCommit(f func()) error {
-	if w.afterCommitEventReceiver == nil {
+	type funcAdder interface{ Add(func()) }
+	if fa, ok := w.EventReceiver.(funcAdder); !ok {
 		return errors.New("session does not have a AfterCommitEventReceiver")
+	} else {
+		fa.Add(f)
 	}
-	w.afterCommitEventReceiver.funcs = append(w.afterCommitEventReceiver.funcs, f)
 	return nil
 }
 
