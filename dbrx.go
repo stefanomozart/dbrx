@@ -3,6 +3,7 @@ package dbrx
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type DML interface {
 	With(name string, builder dbr.Builder) DML
 	Greatest(value ...interface{}) dbr.Builder
 	Union(builders ...dbr.Builder) *UnionStmt
+	RunAfterCommit(func()) error
 	updateBySql(sql string) *dbr.UpdateBuilder
 	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
 	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
@@ -38,11 +40,26 @@ type TX interface {
 	RollbackUnlessCommitted()
 }
 
+type AfterCommitEventReceiver struct {
+	*dbr.NullEventReceiver
+	funcs []func()
+}
+
+func (er *AfterCommitEventReceiver) Event(eventName string) {
+	if eventName != "dbr.commit" {
+		return
+	}
+	for _, f := range er.funcs {
+		f()
+	}
+}
+
 type withClauses []withClause
 
 type wrapper struct {
 	*dbr.Session
-	withClauses withClauses
+	withClauses              withClauses
+	afterCommitEventReceiver *AfterCommitEventReceiver
 }
 
 type withClause struct {
@@ -75,12 +92,16 @@ func Wrap(s *dbr.Session) DML {
 	if _, ok := s.Dialect.(dialect); !ok {
 		s.Dialect = dialect{s.Dialect}
 	}
-	return &wrapper{Session: s}
+	w := &wrapper{Session: s}
+	if er, ok := s.EventReceiver.(*AfterCommitEventReceiver); ok {
+		w.afterCommitEventReceiver = er
+	}
+	return w
 }
 
 func (w *wrapper) Begin() (TX, error) {
 	tx, err := w.Session.Begin()
-	return outerTransaction{Tx: tx}, err
+	return outerTransaction{Tx: tx, w: w}, err
 }
 
 func (w *wrapper) With(name string, builder dbr.Builder) DML {
@@ -120,9 +141,18 @@ func (w *wrapper) Union(builders ...dbr.Builder) *UnionStmt {
 	return &UnionStmt{builders, w, false, w.Session.Dialect}
 }
 
+func (w *wrapper) RunAfterCommit(f func()) error {
+	if w.afterCommitEventReceiver == nil {
+		return errors.New("session does not have a AfterCommitEventReceiver")
+	}
+	w.afterCommitEventReceiver.funcs = append(w.afterCommitEventReceiver.funcs, f)
+	return nil
+}
+
 type outerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
+	w           *wrapper
 }
 
 func (t outerTransaction) Begin() (TX, error) {
@@ -154,6 +184,10 @@ func (t outerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
 	return &UnionStmt{builders, t, false, t.Tx.Dialect}
 }
 
+func (t outerTransaction) RunAfterCommit(f func()) error {
+	return t.RunAfterCommit(f)
+}
+
 func (t outerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
 	return t.Tx.SelectBySql(sql, value...)
 }
@@ -169,6 +203,7 @@ func (t outerTransaction) insertBySql(sql string, value ...interface{}) *dbr.Ins
 type innerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
+	w           *wrapper
 }
 
 func (t innerTransaction) Begin() (TX, error)     { return t, nil }
@@ -199,6 +234,10 @@ func (t innerTransaction) Greatest(value ...interface{}) dbr.Builder {
 
 func (t innerTransaction) Union(builders ...dbr.Builder) *UnionStmt {
 	return &UnionStmt{builders, t, false, t.Tx.Dialect}
+}
+
+func (t innerTransaction) RunAfterCommit(f func()) error {
+	return t.RunAfterCommit(f)
 }
 
 func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {

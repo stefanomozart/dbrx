@@ -386,3 +386,22 @@ func TestUnion(t *testing.T) {
 		}
 	}
 }
+
+func TestRunAfterCommit(t *testing.T) {
+	conn, err := dbr.Open("sqlite3", ":memory:", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	er := &AfterCommitEventReceiver{}
+	sess := conn.NewSession(er)
+	dml := Wrap(sess)
+	var ok bool
+	dml.RunAfterCommit(func() { ok = true })
+	err = RunInTransaction(dml, func(tx TX) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Errorf("not ok")
+	}
+}
