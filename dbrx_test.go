@@ -392,8 +392,7 @@ func TestRunAfterCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	er := &AfterCommitEventReceiver{}
-	sess := conn.NewSession(er)
+	sess := conn.NewSession(&AfterCommitEventReceiver{})
 	dml := Wrap(sess)
 	var ok bool
 	dml.RunAfterCommit(func() { ok = true })
