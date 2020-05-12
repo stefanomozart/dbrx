@@ -30,6 +30,8 @@ type DML interface {
 	updateBySql(sql string) *dbr.UpdateBuilder
 	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
 	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
+	TranslateString(text, regex, replace string) string
+	Translate(text, regex, replace string) dbr.Builder
 }
 
 // TX represents a db transaction
@@ -202,6 +204,14 @@ func (t outerTransaction) insertBySql(sql string, value ...interface{}) *dbr.Ins
 	return t.Tx.InsertBySql(sql, value...)
 }
 
+func (t outerTransaction) TranslateString(text, regex, replace string) string {
+	return TranslateString(t.Tx.Dialect, text, regex, replace)
+}
+
+func (t outerTransaction) Translate(text, regex, replace string) dbr.Builder {
+	return Translate(t.Tx.Dialect, text, regex, replace)
+}
+
 type innerTransaction struct {
 	*dbr.Tx
 	withClauses withClauses
@@ -252,6 +262,14 @@ func (t innerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
 
 func (t innerTransaction) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
 	return t.Tx.InsertBySql(sql, value...)
+}
+
+func (t innerTransaction) TranslateString(text, regex, replace string) string {
+	return TranslateString(t.Tx.Dialect, text, regex, replace)
+}
+
+func (t innerTransaction) Translate(text, regex, replace string) dbr.Builder {
+	return Translate(t.Tx.Dialect, text, regex, replace)
 }
 
 // RunInTransaction calls f inside a transaction and rollbacks if it returns an error
@@ -567,6 +585,29 @@ func (d dialect) Placeholder(i int) string {
 
 func Parens(b dbr.Builder) dbr.Builder {
 	return parensBuilder{b}
+}
+
+func (w *wrapper) TranslateString(text, regex, replace string) string {
+	return TranslateString(w.Session.Dialect, text, regex, replace)
+}
+
+func (w *wrapper) Translate(text, regex, replace string) dbr.Builder {
+	return Translate(w.Session.Dialect, text, regex, replace)
+}
+
+func TranslateString(d dbr.Dialect, text, regex, replace string) string {
+	if isPostgres(d) {
+		return fmt.Sprintf("translate(%s, '%s', '%s')", text, regex, replace)
+	}
+	final := text
+	for i, c := range regex {
+		final = fmt.Sprintf("replace(%s, '%c', '%c')", final, c, replace[i/2])
+	}
+	return final
+}
+
+func Translate(d dbr.Dialect, text, regex, replace string) dbr.Builder {
+	return dbr.Expr(TranslateString(d, text, regex, replace))
 }
 
 type parensBuilder struct {
