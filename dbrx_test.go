@@ -306,6 +306,15 @@ func TestBuild(t *testing.T) {
 				OnConflict("c", dml.Update("t").Set("t", "v")),
 			`INSERT INTO "t" ("c") VALUES (?) ON CONFLICT ("c") DO UPDATE "t" SET "t" = ?`,
 		},
+		{
+			"on conflict do nothing",
+			dml.
+				InsertInto("t").
+				Columns("c").
+				Values("v").
+				OnConflict("", dbr.Expr("nothing")),
+			`INSERT INTO "t" ("c") VALUES (?) ON CONFLICT DO nothing`,
+		},
 	}
 	for _, c := range cases {
 		buf := dbr.NewBuffer()

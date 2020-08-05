@@ -360,9 +360,10 @@ func (b *SelectStmt) Load(value interface{}) (int, error) {
 // InsertStmt overcomes dbr.InsertStmt limitations
 type InsertStmt struct {
 	*dbr.InsertStmt
-	name string
-	do   dbr.Builder
-	dml  DML
+	onConflict bool
+	name       string
+	do         dbr.Builder
+	dml        DML
 }
 
 // Columns specifies the columns names
@@ -428,6 +429,7 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 
 // OnConflict implements the ON CONFLICT clause
 func (b *InsertStmt) OnConflict(name string, do dbr.Builder) *InsertStmt {
+	b.onConflict = true
 	b.name = name
 	b.do = do
 	return b
@@ -439,10 +441,13 @@ func (b *InsertStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	if err != nil {
 		return err
 	}
-	if b.name != "" {
-		buf.WriteString(" ON CONFLICT (")
-		buf.WriteString(d.QuoteIdent(b.name))
-		buf.WriteString(")")
+	if b.onConflict {
+		buf.WriteString(" ON CONFLICT")
+		if b.name != "" {
+			buf.WriteString(" (")
+			buf.WriteString(d.QuoteIdent(b.name))
+			buf.WriteString(")")
+		}
 		buf.WriteString(" DO ")
 		b.do.Build(d, buf)
 	}
