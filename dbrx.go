@@ -397,7 +397,7 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 		}
 		return sqlResult(id), nil
 	}
-	if b.name == "" {
+	if !b.onConflict {
 		return b.InsertStmt.Exec()
 	}
 	sql, err := b.interpolate()
@@ -417,7 +417,7 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 		}
 		return sqlResult(id), nil
 	}
-	if b.name == "" {
+	if !b.onConflict {
 		return b.InsertStmt.ExecContext(ctx)
 	}
 	sql, err := b.interpolate()
