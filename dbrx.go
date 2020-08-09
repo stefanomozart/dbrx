@@ -361,7 +361,7 @@ func (b *SelectStmt) Load(value interface{}) (int, error) {
 type InsertStmt struct {
 	*dbr.InsertStmt
 	onConflict bool
-	name       string
+	name       interface{}
 	do         dbr.Builder
 	dml        DML
 }
@@ -428,7 +428,7 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 }
 
 // OnConflict implements the ON CONFLICT clause
-func (b *InsertStmt) OnConflict(name string, do dbr.Builder) *InsertStmt {
+func (b *InsertStmt) OnConflict(name interface{}, do dbr.Builder) *InsertStmt {
 	b.onConflict = true
 	b.name = name
 	b.do = do
@@ -443,9 +443,21 @@ func (b *InsertStmt) Build(d dbr.Dialect, buf dbr.Buffer) error {
 	}
 	if b.onConflict {
 		buf.WriteString(" ON CONFLICT")
-		if b.name != "" {
+		if b.name != "" && b.name != nil {
+			var names []string
+			name, ok := b.name.(string)
+			if ok {
+				names = []string{name}
+			} else {
+				names = b.name.([]string)
+			}
 			buf.WriteString(" (")
-			buf.WriteString(d.QuoteIdent(b.name))
+			for i, n := range names {
+				if i > 0 {
+					buf.WriteString(",")
+				}
+				buf.WriteString(d.QuoteIdent(n))
+			}
 			buf.WriteString(")")
 		}
 		buf.WriteString(" DO ")
