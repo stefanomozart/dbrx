@@ -786,18 +786,27 @@ type MultipleEventReceiver []dbr.EventReceiver
 
 func (ers MultipleEventReceiver) Event(eventName string) {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.Event(eventName)
 	}
 }
 
 func (ers MultipleEventReceiver) EventKv(eventName string, kvs map[string]string) {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.EventKv(eventName, kvs)
 	}
 }
 
 func (ers MultipleEventReceiver) EventErr(eventName string, err error) error {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.EventErr(eventName, err)
 	}
 	return err
@@ -805,6 +814,9 @@ func (ers MultipleEventReceiver) EventErr(eventName string, err error) error {
 
 func (ers MultipleEventReceiver) EventErrKv(eventName string, err error, kvs map[string]string) error {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.EventErrKv(eventName, err, kvs)
 	}
 	return err
@@ -812,12 +824,18 @@ func (ers MultipleEventReceiver) EventErrKv(eventName string, err error, kvs map
 
 func (ers MultipleEventReceiver) Timing(eventName string, nanoseconds int64) {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.Timing(eventName, nanoseconds)
 	}
 }
 
 func (ers MultipleEventReceiver) TimingKv(eventName string, nanoseconds int64, kvs map[string]string) {
 	for _, er := range ers {
+		if er == nil {
+			continue
+		}
 		er.TimingKv(eventName, nanoseconds, kvs)
 	}
 }
