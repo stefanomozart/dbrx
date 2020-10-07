@@ -839,3 +839,20 @@ func (ers MultipleEventReceiver) TimingKv(eventName string, nanoseconds int64, k
 		er.TimingKv(eventName, nanoseconds, kvs)
 	}
 }
+
+func (ers MultipleEventReceiver) Add(fn func()) {
+	type funcAdder interface{ Add(func()) }
+	var added bool
+	for _, er := range ers {
+		if er == nil {
+			continue
+		}
+		if fa, ok := er.(funcAdder); ok {
+			fa.Add(fn)
+			added = true
+		}
+	}
+	if !added {
+		panic("session does not have a AfterCommitEventReceiver between its event receivers")
+	}
+}
