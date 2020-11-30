@@ -6,27 +6,27 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gocraft/dbr"
 	dbrdialect "github.com/gocraft/dbr/dialect"
-	_ "github.com/mattn/go-sqlite3" // import necessário para executar os scripts
+	"github.com/gocraft/dbr/v2"
+	_ "github.com/mattn/go-sqlite3" // driver sqlite3
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
 // Setup Configura banco de dados em memoria com o schema definido
 // e o script passado
-func Setup(script string) *dbr.Session {
-	sess, _ := SetupConn(script)
+func Setup(schema, script string) *dbr.Session {
+	sess, _ := SetupConn(schema, script)
 	return sess
 }
 
 // SetupConn Configura banco de dados em memoria com o schema definido
 // e o script passado
-func SetupConn(script string) (*dbr.Session, *dbr.Connection) {
-	schema, err := os.Open("schema.sql")
+func SetupConn(schema, script string) (*dbr.Session, *dbr.Connection) {
+	fs, err := os.Open(schema)
 	if err != nil {
 		panic(err)
 	}
-	return ExecScripts(schema, strings.NewReader(script))
+	return ExecScripts(fs, strings.NewReader(script))
 }
 
 // ExecScripts abre conexão de banco, executa comandos de DDL e retorna sessão
