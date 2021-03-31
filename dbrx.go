@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,33 @@ import (
 const (
 	placeholder = "?"
 )
+
+// SetupConn abre conexão de banco
+func SetupConn(dsn string) DML {
+	if len(dsn) == 0 {
+		dsn = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			GetEnv("DB_HOST", "localhost"),
+			GetEnv("DB_PORT", "5432"),
+			GetEnv("DB_USER", "postgres"),
+			GetEnv("DB_PASSWD", ""),
+			GetEnv("DB_DBNAME", "postgres"),
+		)
+	}
+
+	conn, err := dbr.Open("pgx", dsn, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	idleConns, _ := strconv.Atoi(GetEnv("MAX_IDLE_CONNS", "3"))
+	conn.SetMaxIdleConns(idleConns)
+
+	openConns, _ := strconv.Atoi(GetEnv("MAX_OPEN_CONNS", "30"))
+	conn.SetMaxOpenConns(openConns)
+
+	return Wrap(conn.NewSession(nil))
+}
 
 // DML is the data manipulation language interface for dbr
 type DML interface {
@@ -27,9 +56,9 @@ type DML interface {
 	Greatest(value ...interface{}) dbr.Builder
 	Union(builders ...dbr.Builder) *UnionStmt
 	RunAfterCommit(func()) error
-	updateBySql(sql string) *dbr.UpdateBuilder
-	selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
-	insertBySql(sql string, value ...interface{}) *dbr.InsertStmt
+	UpdateBySql(sql string) *dbr.UpdateBuilder
+	SelectBySql(sql string, value ...interface{}) *dbr.SelectBuilder
+	InsertBySql(sql string, value ...interface{}) *dbr.InsertStmt
 	TranslateString(text, regex, replace string) string
 	Translate(text, regex, replace string) dbr.Builder
 }
@@ -63,7 +92,7 @@ func (er *AfterCommitEventReceiver) Event(eventName string) {
 type withClauses []withClause
 
 type wrapper struct {
-	*dbr.Session
+	Session     *dbr.Session
 	withClauses withClauses
 }
 
@@ -92,13 +121,16 @@ func (ws withClauses) write(d dbr.Dialect, buf dbr.Buffer) error {
 	return nil
 }
 
-// Wrap a *dbr.Session
-func Wrap(s *dbr.Session) DML {
+func newWrapper(s *dbr.Session) *wrapper {
 	if _, ok := s.Dialect.(dialect); !ok {
 		s.Dialect = dialect{s.Dialect}
 	}
-	w := &wrapper{Session: s}
-	return w
+	return &wrapper{Session: s}
+}
+
+// Wrap a *dbr.Session
+func Wrap(s *dbr.Session) DML {
+	return newWrapper(s)
 }
 
 func (w *wrapper) Begin() (TX, error) {
@@ -127,15 +159,19 @@ func (w *wrapper) Update(table string) *UpdateStmt {
 	return stmt
 }
 
-func (w *wrapper) updateBySql(sql string) *dbr.UpdateBuilder {
+func (w *wrapper) DeleteFrom(sql string) *dbr.DeleteStmt {
+	return w.Session.DeleteFrom(sql)
+}
+
+func (w *wrapper) UpdateBySql(sql string) *dbr.UpdateBuilder {
 	return w.Session.UpdateBySql(sql)
 }
 
-func (w *wrapper) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
+func (w *wrapper) SelectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
 	return w.Session.SelectBySql(sql, value...)
 }
 
-func (w *wrapper) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+func (w *wrapper) InsertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
 	return w.Session.InsertBySql(sql, value...)
 }
 
@@ -145,7 +181,7 @@ func (w *wrapper) Union(builders ...dbr.Builder) *UnionStmt {
 
 func (w *wrapper) RunAfterCommit(f func()) error {
 	type funcAdder interface{ Add(func()) }
-	if fa, ok := w.EventReceiver.(funcAdder); !ok {
+	if fa, ok := w.Session.EventReceiver.(funcAdder); !ok {
 		return errors.New("session does not have a AfterCommitEventReceiver")
 	} else {
 		fa.Add(f)
@@ -192,15 +228,15 @@ func (t outerTransaction) RunAfterCommit(f func()) error {
 	return t.w.RunAfterCommit(f)
 }
 
-func (t outerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
+func (t outerTransaction) SelectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
 	return t.Tx.SelectBySql(sql, value...)
 }
 
-func (t outerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
+func (t outerTransaction) UpdateBySql(sql string) *dbr.UpdateBuilder {
 	return t.Tx.UpdateBySql(sql)
 }
 
-func (t outerTransaction) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+func (t outerTransaction) InsertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
 	return t.Tx.InsertBySql(sql, value...)
 }
 
@@ -252,15 +288,15 @@ func (t innerTransaction) RunAfterCommit(f func()) error {
 	return t.w.RunAfterCommit(f)
 }
 
-func (t innerTransaction) selectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
+func (t innerTransaction) SelectBySql(sql string, value ...interface{}) *dbr.SelectBuilder {
 	return t.Tx.SelectBySql(sql)
 }
 
-func (t innerTransaction) updateBySql(sql string) *dbr.UpdateBuilder {
+func (t innerTransaction) UpdateBySql(sql string) *dbr.UpdateBuilder {
 	return t.Tx.UpdateBySql(sql)
 }
 
-func (t innerTransaction) insertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
+func (t innerTransaction) InsertBySql(sql string, value ...interface{}) *dbr.InsertStmt {
 	return t.Tx.InsertBySql(sql, value...)
 }
 
@@ -354,7 +390,7 @@ func (b *SelectStmt) Load(value interface{}) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return b.dml.selectBySql(str).Load(value)
+	return b.dml.SelectBySql(str).Load(value)
 }
 
 // InsertStmt overcomes dbr.InsertStmt limitations
@@ -404,7 +440,7 @@ func (b *InsertStmt) Exec() (sql.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.dml.insertBySql(sql).Exec()
+	return b.dml.InsertBySql(sql).Exec()
 }
 
 // ExecContext runs the insert statement
@@ -424,7 +460,7 @@ func (b *InsertStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.dml.insertBySql(sql).ExecContext(ctx)
+	return b.dml.InsertBySql(sql).ExecContext(ctx)
 }
 
 // OnConflict implements the ON CONFLICT clause
@@ -517,7 +553,7 @@ func (b *UpdateStmt) Exec() (sql.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.dml.updateBySql(str).Exec()
+	return b.dml.UpdateBySql(str).Exec()
 }
 
 // ExecContext runs the update statement
@@ -529,7 +565,7 @@ func (b *UpdateStmt) ExecContext(ctx context.Context) (sql.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.dml.updateBySql(str).ExecContext(ctx)
+	return b.dml.UpdateBySql(str).ExecContext(ctx)
 }
 
 func (b *UpdateStmt) interpolateWithClause() (str string, err error) {
@@ -779,7 +815,7 @@ func (us *UnionStmt) LoadContext(ctx context.Context, value interface{}) (int, e
 	if err != nil {
 		return 0, err
 	}
-	return us.dml.selectBySql(str).LoadContext(ctx, value)
+	return us.dml.SelectBySql(str).LoadContext(ctx, value)
 }
 
 type MultipleEventReceiver []dbr.EventReceiver
@@ -855,4 +891,14 @@ func (ers MultipleEventReceiver) Add(fn func()) {
 	if !added {
 		panic("session does not have a AfterCommitEventReceiver between its event receivers")
 	}
+}
+
+// GetEnv returns the environment variable, if it is set, or the provided
+// default value
+func GetEnv(varName, defaultVal string) string {
+	val := os.Getenv(varName)
+	if len(val) == 0 {
+		return defaultVal
+	}
+	return val
 }
