@@ -1,60 +1,64 @@
 package dbrx
 
 import (
-	"io"
+	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
 
 	dbrdialect "github.com/gocraft/dbr/dialect"
 	"github.com/gocraft/dbr/v2"
-	_ "github.com/mattn/go-sqlite3" // driver sqlite3
+	_ "github.com/jackc/pgx/v4/stdlib" // driver postgres
 	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
-// Setup Configura banco de dados em memoria com o schema definido
-// e o script passado
-func Setup(schema, script string) *dbr.Session {
-	sess, _ := SetupConn(schema, script)
-	return sess
-}
+// Setup abre conexão de banco, cria o schema definido e
+// executa o script passado
+func Setup(schema, script string) DML {
+	dml := setupTestConn()
 
-// SetupConn Configura banco de dados em memoria com o schema definido
-// e o script passado
-func SetupConn(schema, script string) (*dbr.Session, *dbr.Connection) {
 	fs, err := os.Open(schema)
 	if err != nil {
 		panic(err)
 	}
-	return ExecScripts(fs, strings.NewReader(script))
+
+	readed, err := ioutil.ReadAll(fs)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := ExecScripts(dml, []string{string(readed), script}); err != nil {
+		panic(err)
+	}
+
+	return dml
 }
 
-// ExecScripts abre conexão de banco, executa comandos de DDL e retorna sessão
-func ExecScripts(readers ...io.Reader) (*dbr.Session, *dbr.Connection) {
-	conn, err := dbr.Open("sqlite3", ":memory:?parseTime=true", nil)
+func setupTestConn() DML {
+	return SetupConn(
+		fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			GetEnv("DBTESTING_HOST", "localhost"),
+			GetEnv("DBTESTING_PORT", "5432"),
+			GetEnv("DBTESTING_USER", "postgres"),
+			GetEnv("DBTESTING_PASSWD", ""),
+			GetEnv("DBTESTING_DBNAME", "postgres"),
+		),
+	)
+}
 
-	if err != nil {
-		panic(err)
-	}
-	sess := conn.NewSession(nil)
-
+// ExecScripts executa comandos de DDL
+func ExecScripts(sess DML, scripts []string) error {
 	tx, err := sess.Begin()
 	defer tx.RollbackUnlessCommitted()
-	for _, r := range readers {
-		readed, err := ioutil.ReadAll(r)
+
+	for _, s := range scripts {
+		_, err = tx.UpdateBySql(s).Exec()
 		if err != nil {
-			panic(err)
-		}
-		_, err = tx.Exec(string(readed))
-		if err != nil {
-			panic(err)
+			return err
 		}
 	}
-	err = tx.Commit()
-	if err != nil {
-		panic(err)
-	}
-	return sess, conn
+
+	return tx.Commit()
 }
 
 // SetupMock abre uma conexão de bd mock que permite capturar os comandos
