@@ -18,15 +18,18 @@ func Setup(schema, script string) DML {
 
 	fs, err := os.Open(schema)
 	if err != nil {
+		fmt.Printf("Erro no os.Open(schema): %v\n", err)
 		panic(err)
 	}
 
 	readed, err := ioutil.ReadAll(fs)
 	if err != nil {
+		fmt.Printf("Erro no ioutil.ReadAll(schema): %v\n", err)
 		panic(err)
 	}
 
 	if err := ExecScripts(dml, []string{string(readed), script}); err != nil {
+		fmt.Printf("Erro no ExecScripts: %v\n", err)
 		panic(err)
 	}
 
@@ -48,17 +51,22 @@ func setupTestConn() DML {
 
 // ExecScripts executa comandos de DDL
 func ExecScripts(sess DML, scripts []string) error {
-	tx, err := sess.Begin()
-	defer tx.RollbackUnlessCommitted()
-
 	for _, s := range scripts {
-		_, err = tx.UpdateBySql(s).Exec()
+		if len(s) == 0 {
+			continue
+		}
+		tx, err := sess.Begin()
+		defer tx.RollbackUnlessCommitted()
+
+		_, err = tx.Exec(s)
 		if err != nil {
 			return err
 		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
-
-	return tx.Commit()
+	return nil
 }
 
 // SetupMock abre uma conexão de bd mock que permite capturar os comandos

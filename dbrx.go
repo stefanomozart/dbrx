@@ -52,6 +52,7 @@ type DML interface {
 	Update(string) *UpdateStmt
 	DeleteFrom(string) *dbr.DeleteStmt
 	Begin() (TX, error)
+	Exec(sql string, args ...interface{}) (sql.Result, error)
 	With(name string, builder dbr.Builder) DML
 	Greatest(value ...interface{}) dbr.Builder
 	Union(builders ...dbr.Builder) *UnionStmt
@@ -131,6 +132,10 @@ func newWrapper(s *dbr.Session) *wrapper {
 // Wrap a *dbr.Session
 func Wrap(s *dbr.Session) DML {
 	return newWrapper(s)
+}
+
+func (w *wrapper) Exec(sql string, args ...interface{}) (sql.Result, error) {
+	return w.Session.Exec(sql, args...)
 }
 
 func (w *wrapper) Begin() (TX, error) {
