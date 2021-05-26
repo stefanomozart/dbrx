@@ -27,7 +27,7 @@ func Setup(schema, script string) DML {
 		fmt.Printf("Erro no ioutil.ReadAll(schema): %v\n", err)
 		panic(err)
 	}
-	println("merda")
+
 	if err := ExecScripts(dml, []string{string(readed), script}); err != nil {
 		fmt.Printf("Erro no ExecScripts: %v\n", err)
 		panic(err)
