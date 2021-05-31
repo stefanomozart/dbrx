@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	dbrdialect "github.com/gocraft/dbr/dialect"
 	"github.com/gocraft/dbr/v2"
+	dbrdialect "github.com/gocraft/dbr/v2/dialect"
 )
 
 const (
