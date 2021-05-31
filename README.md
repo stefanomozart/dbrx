@@ -39,7 +39,7 @@ func handleRequest() {
 ```
 
 The package also provides the utility function `SetupConn(dsn string)` that will receive a 
-dns string and perform the coneection, create the session and return the wrapped connection:
+dns string and perform the connection, create the session and return the wrapped connection:
 
 ```
 import (
@@ -57,7 +57,7 @@ func handleRequest() {
 ```
 
 If you provide and empty string as the parameter to the `SetupConn` function, it will atempt 
-to create a dsn using envoronment variables, as follows:
+to create a dsn using environment variables, as follows:
 
 ```
 dsn = fmt.Sprintf(
