@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	dbrdialect "github.com/gocraft/dbr/dialect"
 	"github.com/gocraft/dbr/v2"
+	dbrdialect "github.com/gocraft/dbr/v2/dialect"
 	_ "github.com/mattn/go-sqlite3"
 )
 
